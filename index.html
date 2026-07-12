@@ -476,6 +476,16 @@ tbody tr:hover td:first-child{background:color-mix(in srgb, var(--amber) 6%, var
   border-radius:var(--ui-radius);
   padding:9px 10px;
 }
+.form-field textarea{
+  background:var(--panel);
+  border:1px solid var(--line);
+  color:var(--text);
+  border-radius:var(--ui-radius);
+  padding:10px 11px;
+  min-height:84px;
+  resize:vertical;
+  font:inherit;
+}
 .photo-preview{
   margin-top:8px;
   min-height:42px;
@@ -493,12 +503,23 @@ tbody tr:hover td:first-child{background:color-mix(in srgb, var(--amber) 6%, var
   border:1px solid var(--line);
   object-fit:cover;
   display:block;
+  cursor:zoom-in;
+}
+.photo-item{position:relative;display:inline-flex;align-items:center;}
+.photo-remove{
+  position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,.55);
+  background:rgba(8,10,14,.72);color:#fff;cursor:pointer;line-height:20px;font-weight:700;
 }
 .detail-photos{
   display:flex;
   flex-wrap:wrap;
   gap:10px;
 }
+.photo-viewer .modal{max-width:min(96vw,1100px);}
+.photo-viewer-body{display:flex;flex-direction:column;gap:12px;align-items:center;}
+.photo-stage{width:100%;height:min(72vh,760px);display:flex;align-items:center;justify-content:center;overflow:auto;background:#05070a;border:1px solid var(--line);border-radius:var(--ui-radius);}
+.photo-stage img{max-width:none;max-height:none;transform-origin:center center;transition:transform .12s ease;}
+.photo-tools{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
 .toggle-switch{position:relative;display:inline-block;width:42px;height:24px;cursor:pointer;flex-shrink:0;}
 .toggle-switch input{opacity:0;width:0;height:0;}
 .ts-track{
@@ -698,8 +719,8 @@ input[type="range"]::-moz-range-thumb{
             <input type="text" id="f_partNo" placeholder="e.g. PN-12345">
           </div>
           <div class="form-field">
-            <label>Serial No.</label>
-            <input type="text" id="f_serialNo" placeholder="e.g. SN-001">
+            <label>Serial Nos.</label>
+            <textarea id="f_serialNo" placeholder="One serial per line, e.g.&#10;SN-001&#10;SN-002"></textarea>
           </div>
           <div class="form-field">
             <label>Supplier</label>
@@ -762,7 +783,7 @@ input[type="range"]::-moz-range-thumb{
             <label>Evidence Photos</label>
             <input type="file" id="f_photo" accept="image/*" multiple capture="environment">
             <div class="hint">You can select/take multiple photos. Photos will be compressed before saving.</div>
-            <button type="button" class="btn" id="clearPhotosBtn" style="margin-top:8px;">Clear evidence photos</button>
+            <button type="button" class="btn" id="clearPhotosBtn" style="margin-top:8px;">Remove all evidence photos</button>
             <div id="photoPreview" class="photo-preview"></div>
           </div>
         </div>
@@ -777,6 +798,26 @@ input[type="range"]::-moz-range-thumb{
     <div class="modal-foot">
       <button class="btn" data-close="add" data-i18n="btn.cancel">Cancel</button>
       <button class="btn primary" id="submitAddBtn" data-i18n="btn.addIssue">Add &amp; Issue to Bin</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop photo-viewer" id="photoViewerBackdrop">
+  <div class="modal">
+    <div class="modal-hd">
+      <div>
+        <h2>Evidence Photo</h2>
+        <div class="mh-sub" id="photoViewerSub">Zoom 100%</div>
+      </div>
+      <button class="modal-close" data-close="photoViewer">&#10005;</button>
+    </div>
+    <div class="modal-body photo-viewer-body">
+      <div class="photo-stage"><img id="photoViewerImg" alt="Evidence photo preview"></div>
+      <div class="photo-tools">
+        <button class="btn" id="photoZoomOutBtn" type="button">Zoom -</button>
+        <button class="btn" id="photoZoomResetBtn" type="button">Reset</button>
+        <button class="btn" id="photoZoomInBtn" type="button">Zoom +</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1047,6 +1088,7 @@ let DATA = [];
 let nextId = 0;
 let dataSourceLabel = 'Loading data folder...';
 let pendingPhotos = [];
+let photoViewerZoom = 1;
 const GITHUB_SETTINGS_KEY = 'ceet_store_github_settings';
 function resetDataIds(){
   DATA.forEach((d,i)=>{ d.__id = i; });
@@ -1622,8 +1664,33 @@ function showPhotoPreview(list){
   if(!box) return;
   const photos = Array.isArray(list) ? list : (list ? [list] : []);
   box.innerHTML = photos.length
-    ? photos.map((src,i)=>'<img src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'">').join('')
+    ? photos.map((src,i)=>'<span class="photo-item"><img src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'" data-photo-index="'+i+'"><button type="button" class="photo-remove" data-photo-remove="'+i+'" title="Remove this photo">x</button></span>').join('')
     : '<span class="bin-occ-empty">No photo selected</span>';
+  box.querySelectorAll('[data-photo-remove]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const idx = Number(btn.dataset.photoRemove);
+      pendingPhotos.splice(idx, 1);
+      showPhotoPreview(pendingPhotos);
+    });
+  });
+  box.querySelectorAll('img[data-photo-index]').forEach(img=>{
+    img.addEventListener('click', ()=>openPhotoViewer(img.src));
+  });
+}
+function updatePhotoViewerZoom(){
+  const img = document.getElementById('photoViewerImg');
+  const sub = document.getElementById('photoViewerSub');
+  if(img) img.style.transform = 'scale('+photoViewerZoom+')';
+  if(sub) sub.textContent = 'Zoom '+Math.round(photoViewerZoom*100)+'%';
+}
+function openPhotoViewer(src){
+  const img = document.getElementById('photoViewerImg');
+  if(!img) return;
+  img.src = src;
+  photoViewerZoom = 1;
+  updatePhotoViewerZoom();
+  document.getElementById('photoViewerBackdrop').classList.add('open');
 }
 
 /* ---------------- tabs ---------------- */
@@ -1816,7 +1883,7 @@ function openDetail(id){
     ['Manufacturer', r.manufacturer || '-', false],
     ['Model', r.model || '-', false],
     ['Part Number', r.partNo || '-', true],
-    ['Serial No.', r.serialNo || '-', true],
+    ['Serial Nos.', String(r.serialNo||'-').replace(/\n/g, ', '), true],
     ['Supplier', r.supplier || '-', false],
     ['Remarks', r.remarks || r.extraInfo || '-', false],
     [t('detail.matType'), r.mtype, true],
@@ -1835,7 +1902,7 @@ function openDetail(id){
   const evidencePhotos = normalizePhotos(r);
   if(evidencePhotos.length){
     html += '<hr class="detail-divider"><div class="dl" style="margin-bottom:8px;">Evidence Photos ('+evidencePhotos.length+')</div><div class="detail-photos">'+
-      evidencePhotos.map((src,i)=>'<img class="detail-photo" src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'">').join('')+
+      evidencePhotos.map((src,i)=>'<img class="detail-photo" src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'" data-view-photo="'+i+'">').join('')+
       '</div>';
   }
 
@@ -1852,6 +1919,9 @@ function openDetail(id){
     }).join('') + '</div>';
   }
   document.getElementById('detailBody').innerHTML = html;
+  document.querySelectorAll('#detailBody img[data-view-photo]').forEach(img=>{
+    img.addEventListener('click', ()=>openPhotoViewer(img.src));
+  });
   state.currentDetailId = r.__id;
   document.getElementById('detailBackdrop').classList.add('open');
 }
@@ -1926,11 +1996,17 @@ document.getElementById('f_loc').addEventListener('change', ()=>{
   if(LOC_LABELS[loc]) document.getElementById('f_locdesc').value = LOC_LABELS[loc];
 });
 document.getElementById('clearPhotosBtn').addEventListener('click', ()=>{
+  if(!pendingPhotos.length) return;
+  const ok = window.confirm('Remove all evidence photos from this item?');
+  if(!ok) return;
   pendingPhotos = [];
   const photoInput = document.getElementById('f_photo');
   if(photoInput) photoInput.value = '';
   showPhotoPreview(pendingPhotos);
 });
+document.getElementById('photoZoomInBtn').addEventListener('click', ()=>{ photoViewerZoom = Math.min(4, photoViewerZoom + 0.25); updatePhotoViewerZoom(); });
+document.getElementById('photoZoomOutBtn').addEventListener('click', ()=>{ photoViewerZoom = Math.max(0.25, photoViewerZoom - 0.25); updatePhotoViewerZoom(); });
+document.getElementById('photoZoomResetBtn').addEventListener('click', ()=>{ photoViewerZoom = 1; updatePhotoViewerZoom(); });
 document.getElementById('f_photo').addEventListener('change', async e=>{
   const files = Array.from(e.target.files || []);
   if(!files.length) return;
@@ -2103,7 +2179,7 @@ const HEADER_ALIASES = {
   'photo':'photo','image':'photo','photo url':'photo','photo data':'photo',
   'photos':'photos','evidence photos':'photos','manufacturer':'manufacturer','maker':'manufacturer',
   'model':'model','part number':'partNo','part no':'partNo','part no.':'partNo','pn':'partNo','p/n':'partNo',
-  'serial no':'serialNo','serial number':'serialNo','s/n':'serialNo','sn':'serialNo',
+  'serial no':'serialNo','serial nos':'serialNo','serial numbers':'serialNo','serial number':'serialNo','s/n':'serialNo','sn':'serialNo',
   'supplier':'supplier','vendor':'supplier',
   'remarks':'remarks','remark':'remarks','notes':'remarks','additional info':'remarks','additional information':'remarks','extra info':'remarks'
 };
@@ -2258,7 +2334,7 @@ const SUPPORTS_SAVE_PICKER = (typeof window!=='undefined') && ('showSaveFilePick
 function todayStamp(){ return new Date().toISOString().slice(0,10); }
 
 function buildCsvBlob(rows){
-  const headers = ['No','Material','Description','Manufacturer','Model','Part Number','Serial No','Supplier','Remarks','Material Type','Simulator','Storage Location','Storage Bin','Qty','Status','Photos'];
+  const headers = ['No','Material','Description','Manufacturer','Model','Part Number','Serial Nos','Supplier','Remarks','Material Type','Simulator','Storage Location','Storage Bin','Qty','Status','Photos'];
   const lines = [headers.join(',')];
   rows.forEach((r,i)=>{
     const s = statusOf(r.qty);
@@ -2275,7 +2351,7 @@ function toOriginalRow(r){
     'Manufacturer': r.manufacturer || '',
     'Model': r.model || '',
     'Part Number': r.partNo || '',
-    'Serial No': r.serialNo || '',
+    'Serial Nos': r.serialNo || '',
     'Supplier': r.supplier || '',
     'Remarks': r.remarks || r.extraInfo || '',
     'Material Type': r.mtype,
