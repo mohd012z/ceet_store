@@ -308,6 +308,13 @@ tbody tr:hover td:first-child{background:color-mix(in srgb, var(--amber) 6%, var
 }
 .other-loc-row .ol-left{font-family:var(--mono);color:var(--text);}
 .other-loc-row .ol-left .bincode{color:var(--blue);}
+.material-card{border:1px solid var(--line);border-radius:var(--ui-radius);background:rgba(255,255,255,.025);padding:12px;}
+.material-card.active{border-color:color-mix(in srgb, var(--amber) 70%, var(--line));box-shadow:0 0 0 1px color-mix(in srgb, var(--amber) 22%, transparent) inset;}
+.material-card-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+.material-card-title{font-family:var(--mono);font-weight:700;color:var(--text);}
+.material-card .detail-grid{margin-top:8px;}
+.material-card .detail-photos{margin-top:10px;}
+.mat-code{cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
 
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 14px;}
 .form-field{display:flex;flex-direction:column;gap:5px;}
@@ -1872,6 +1879,31 @@ function render(){
 }
 
 /* ---------------- Detail modal ---------------- */
+function materialRecordCard(o, active){
+  const os = statusOf(o.qty);
+  const photos = normalizePhotos(o);
+  const fields = [
+    ['Description', o.desc || '-', false],
+    ['Manufacturer', o.manufacturer || '-', false],
+    ['Model', o.model || '-', false],
+    ['Part Number', o.partNo || '-', true],
+    ['Serial Nos.', String(o.serialNo||'-').replace(/\n/g, ', '), true],
+    ['Supplier', o.supplier || '-', false],
+    ['Remarks', o.remarks || o.extraInfo || '-', false],
+    ['Simulator', o.sim || o.src || '-', false],
+    ['Source Tab', o.src || '-', false],
+    ['Storage Location', (LOC_LABELS[o.loc]||o.locDesc||o.loc)+' ('+(o.loc||'-')+')', false],
+    ['Bin', o.bin || t('detail.unassigned'), true],
+    ['Qty', o.qty, true],
+    ['Status', statusLabel(os), false]
+  ];
+  return '<div class="material-card '+(active?'active':'')+'" data-material-card="'+o.__id+'">'+
+    '<div class="material-card-hd"><div class="material-card-title">'+escapeHtml(o.mat)+' - '+escapeHtml(o.sim||o.src||'')+'</div>'+
+    '<span class="status '+os+'"><span class="sdot"></span>'+o.qty+' - '+statusLabel(os)+'</span></div>'+
+    '<div class="detail-grid">'+fields.map(f=>'<div class="detail-field"><div class="dl">'+escapeHtml(f[0])+'</div><div class="dv'+(f[2]?' mono':'')+'">'+escapeHtml(f[1])+'</div></div>').join('')+'</div>'+
+    (photos.length ? '<div class="detail-photos">'+photos.map((src,i)=>'<img class="detail-photo" src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'" data-view-photo="'+i+'">').join('')+'</div>' : '')+
+    '</div>';
+}
 function openDetail(id){
   const r = DATA.find(d=>d.__id===id);
   if(!r) return;
@@ -1906,18 +1938,10 @@ function openDetail(id){
       '</div>';
   }
 
-  const others = DATA.filter(d=>d.mat===r.mat && d.__id!==r.__id);
+  const materialRows = DATA.filter(d=>d.mat===r.mat).sort((a,b)=>String(a.src||'').localeCompare(String(b.src||'')) || String(a.loc||'').localeCompare(String(b.loc||'')) || String(a.bin||'').localeCompare(String(b.bin||'')));
   html += '<hr class="detail-divider">';
-  html += '<div class="dl" style="margin-bottom:8px;">'+t('detail.otherStores')+' ('+others.length+')</div>';
-  if(others.length===0){
-    html += '<div class="bin-occ-empty">'+t('detail.notStocked')+'</div>';
-  } else {
-    html += '<div class="other-locs">' + others.map(o=>{
-      const os = statusOf(o.qty);
-      return '<div class="other-loc-row"><div class="ol-left">'+escapeHtml(o.sim)+' &middot; '+escapeHtml(LOC_LABELS[o.loc]||o.locDesc)+' &middot; bin <span class="bincode">'+escapeHtml(o.bin||'—')+'</span></div>'+
-        '<span class="status '+os+'"><span class="sdot"></span>'+o.qty+' &middot; '+statusLabel(os)+'</span></div>';
-    }).join('') + '</div>';
-  }
+  html += '<div class="dl" style="margin-bottom:8px;">All records for this Material No. ('+materialRows.length+')</div>';
+  html += '<div class="other-locs">' + materialRows.map(o=>materialRecordCard(o, o.__id===r.__id)).join('') + '</div>';
   document.getElementById('detailBody').innerHTML = html;
   document.querySelectorAll('#detailBody img[data-view-photo]').forEach(img=>{
     img.addEventListener('click', ()=>openPhotoViewer(img.src));
