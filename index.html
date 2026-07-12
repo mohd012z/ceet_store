@@ -480,6 +480,11 @@ tbody tr:hover td:first-child{background:color-mix(in srgb, var(--amber) 6%, var
   margin-top:8px;
   min-height:42px;
 }
+.photo-preview{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
 .photo-preview img,
 .detail-photo{
   max-width:180px;
@@ -488,6 +493,11 @@ tbody tr:hover td:first-child{background:color-mix(in srgb, var(--amber) 6%, var
   border:1px solid var(--line);
   object-fit:cover;
   display:block;
+}
+.detail-photos{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
 }
 .toggle-switch{position:relative;display:inline-block;width:42px;height:24px;cursor:pointer;flex-shrink:0;}
 .toggle-switch input{opacity:0;width:0;height:0;}
@@ -676,6 +686,22 @@ input[type="range"]::-moz-range-thumb{
             <input type="text" id="f_desc" required placeholder="e.g. REGULATOR-HOT GAS BYPASS">
           </div>
           <div class="form-field">
+            <label>Manufacturer</label>
+            <input type="text" id="f_manufacturer" placeholder="e.g. Honeywell">
+          </div>
+          <div class="form-field">
+            <label>Model</label>
+            <input type="text" id="f_model" placeholder="e.g. A320 panel model">
+          </div>
+          <div class="form-field">
+            <label>Part Number</label>
+            <input type="text" id="f_partNo" placeholder="e.g. PN-12345">
+          </div>
+          <div class="form-field">
+            <label>Additional Info</label>
+            <input type="text" id="f_extraInfo" placeholder="serial, remarks, supplier, etc.">
+          </div>
+          <div class="form-field">
             <label data-i18n="add.matType">Material Type</label>
             <input type="text" id="f_mtype" list="mtypeList" placeholder="ZMPV" value="ZMPV">
             <datalist id="mtypeList"></datalist>
@@ -725,9 +751,10 @@ input[type="range"]::-moz-range-thumb{
             <input type="number" id="f_val" value="0" step="0.01">
           </div>
           <div class="form-field full">
-            <label>Photo</label>
-            <input type="file" id="f_photo" accept="image/*" capture="environment">
-            <div class="hint">Photo will be compressed before saving.</div>
+            <label>Evidence Photos</label>
+            <input type="file" id="f_photo" accept="image/*" multiple capture="environment">
+            <div class="hint">You can select/take multiple photos. Photos will be compressed before saving.</div>
+            <button type="button" class="btn" id="clearPhotosBtn" style="margin-top:8px;">Clear evidence photos</button>
             <div id="photoPreview" class="photo-preview"></div>
           </div>
         </div>
@@ -1011,7 +1038,7 @@ const STARTER_JSON_URL = 'data/CEET_Spares_Database.json';
 let DATA = [];
 let nextId = 0;
 let dataSourceLabel = 'Loading data folder...';
-let pendingPhotoData = '';
+let pendingPhotos = [];
 const GITHUB_SETTINGS_KEY = 'ceet_store_github_settings';
 function resetDataIds(){
   DATA.forEach((d,i)=>{ d.__id = i; });
@@ -1457,8 +1484,17 @@ function arrayBufferToBase64(buffer){
   for(let i=0;i<bytes.length;i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
+function normalizePhotos(r){
+  const list = Array.isArray(r.photos) ? r.photos.filter(Boolean) : [];
+  if(r.photo && !list.includes(r.photo)) list.unshift(r.photo);
+  return list;
+}
 function cleanRowsForSave(){
-  return DATA.map(({__id, ...rest})=>rest);
+  return DATA.map(({__id, ...rest})=>{
+    rest.photos = normalizePhotos(rest);
+    rest.photo = rest.photos[0] || '';
+    return rest;
+  });
 }
 function buildDatabaseJson(){
   return JSON.stringify(cleanRowsForSave(), null, 2);
@@ -1573,10 +1609,13 @@ function compressImageFile(file, maxSize=900, quality=0.72){
     img.src = url;
   });
 }
-function showPhotoPreview(src){
+function showPhotoPreview(list){
   const box = document.getElementById('photoPreview');
   if(!box) return;
-  box.innerHTML = src ? '<img src="'+escapeHtml(src)+'" alt="Part photo">' : '<span class="bin-occ-empty">No photo selected</span>';
+  const photos = Array.isArray(list) ? list : (list ? [list] : []);
+  box.innerHTML = photos.length
+    ? photos.map((src,i)=>'<img src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'">').join('')
+    : '<span class="bin-occ-empty">No photo selected</span>';
 }
 
 /* ---------------- tabs ---------------- */
@@ -1766,6 +1805,10 @@ function openDetail(id){
   const s = statusOf(r.qty);
   const fields = [
     [t('table.material'), r.mat, true],
+    ['Manufacturer', r.manufacturer || '-', false],
+    ['Model', r.model || '-', false],
+    ['Part Number', r.partNo || '-', true],
+    ['Additional Info', r.extraInfo || '-', false],
     [t('detail.matType'), r.mtype, true],
     [t('detail.matGroup'), r.mgroup, true],
     [t('detail.plant'), r.plant, true],
@@ -1779,8 +1822,11 @@ function openDetail(id){
   let html = '<div class="detail-grid">' + fields.map(f=>
     '<div class="detail-field"><div class="dl">'+escapeHtml(f[0])+'</div><div class="dv'+(f[2]?' mono':'')+'">'+escapeHtml(f[1])+'</div></div>'
   ).join('') + '</div>';
-  if(r.photo){
-    html += '<hr class="detail-divider"><div class="dl" style="margin-bottom:8px;">Photo</div><img class="detail-photo" src="'+escapeHtml(r.photo)+'" alt="Part photo">';
+  const evidencePhotos = normalizePhotos(r);
+  if(evidencePhotos.length){
+    html += '<hr class="detail-divider"><div class="dl" style="margin-bottom:8px;">Evidence Photos ('+evidencePhotos.length+')</div><div class="detail-photos">'+
+      evidencePhotos.map((src,i)=>'<img class="detail-photo" src="'+escapeHtml(src)+'" alt="Evidence photo '+(i+1)+'">').join('')+
+      '</div>';
   }
 
   const others = DATA.filter(d=>d.mat===r.mat && d.__id!==r.__id);
@@ -1869,17 +1915,27 @@ document.getElementById('f_loc').addEventListener('change', ()=>{
   const loc = document.getElementById('f_loc').value.trim().toUpperCase();
   if(LOC_LABELS[loc]) document.getElementById('f_locdesc').value = LOC_LABELS[loc];
 });
+document.getElementById('clearPhotosBtn').addEventListener('click', ()=>{
+  pendingPhotos = [];
+  const photoInput = document.getElementById('f_photo');
+  if(photoInput) photoInput.value = '';
+  showPhotoPreview(pendingPhotos);
+});
 document.getElementById('f_photo').addEventListener('change', async e=>{
-  const file = e.target.files && e.target.files[0];
-  if(!file) return;
+  const files = Array.from(e.target.files || []);
+  if(!files.length) return;
   try{
-    toast('Compressing photo...');
-    pendingPhotoData = await compressImageFile(file);
-    showPhotoPreview(pendingPhotoData);
-    toast('Photo compressed and ready to save.', 'info');
+    toast('Compressing '+files.length+' photo(s)...');
+    const compressed = [];
+    for(const file of files){
+      compressed.push(await compressImageFile(file));
+    }
+    pendingPhotos = pendingPhotos.concat(compressed).filter(Boolean);
+    showPhotoPreview(pendingPhotos);
+    toast('Evidence photo(s) compressed and ready to save.', 'info');
   } catch(err){
     console.error(err);
-    toast('Could not read or compress the photo. Please try another image.', 'err');
+    toast('Could not read or compress one photo. Please try another image.', 'err');
   }
 });
 
@@ -1887,10 +1943,10 @@ function openAddModal(editId){
   document.getElementById('addForm').reset();
   const editing = (editId!=null) ? DATA.find(d=>d.__id===editId) : null;
   state.editingId = editing ? editing.__id : null;
-  pendingPhotoData = editing && editing.photo ? editing.photo : '';
+  pendingPhotos = editing ? normalizePhotos(editing) : [];
   const photoInput = document.getElementById('f_photo');
   if(photoInput) photoInput.value = '';
-  showPhotoPreview(pendingPhotoData);
+  showPhotoPreview(pendingPhotos);
 
   const titleEl = document.querySelector('#addBackdrop .modal-hd h2');
   const subEl = document.querySelector('#addBackdrop .mh-sub');
@@ -1902,6 +1958,10 @@ function openAddModal(editId){
     submitBtn.textContent = t('btn.saveChanges');
     document.getElementById('f_mat').value = editing.mat;
     document.getElementById('f_desc').value = editing.desc;
+    document.getElementById('f_manufacturer').value = editing.manufacturer || '';
+    document.getElementById('f_model').value = editing.model || '';
+    document.getElementById('f_partNo').value = editing.partNo || '';
+    document.getElementById('f_extraInfo').value = editing.extraInfo || '';
     document.getElementById('f_mtype').value = editing.mtype || 'ZMPV';
     document.getElementById('f_mgroup').value = editing.mgroup || '803010101';
     document.getElementById('f_plant').value = editing.plant || 'HEQC';
@@ -1949,6 +2009,10 @@ document.getElementById('submitAddBtn').addEventListener('click', ()=>{
   }
   const fields = {
     mat, desc,
+    manufacturer: document.getElementById('f_manufacturer').value.trim(),
+    model: document.getElementById('f_model').value.trim(),
+    partNo: document.getElementById('f_partNo').value.trim(),
+    extraInfo: document.getElementById('f_extraInfo').value.trim(),
     mtype: document.getElementById('f_mtype').value.trim() || 'ZMPV',
     mgroup: document.getElementById('f_mgroup').value.trim() || '803010101',
     plant: document.getElementById('f_plant').value.trim() || 'HEQC',
@@ -1960,7 +2024,8 @@ document.getElementById('submitAddBtn').addEventListener('click', ()=>{
     qty: Number(document.getElementById('f_qty').value)||0,
     cur: document.getElementById('f_cur').value.trim() || 'MYR',
     val: Number(document.getElementById('f_val').value)||0,
-    photo: pendingPhotoData || ''
+    photo: pendingPhotos[0] || '',
+    photos: pendingPhotos.slice()
   };
 
   if(state.editingId!=null){
@@ -2020,11 +2085,14 @@ const HEADER_ALIASES = {
   'unrestricted':'qty',
   'currency':'cur',
   'value unrestricted':'val',
-  'photo':'photo','image':'photo','photo url':'photo','photo data':'photo'
+  'photo':'photo','image':'photo','photo url':'photo','photo data':'photo',
+  'photos':'photos','evidence photos':'photos','manufacturer':'manufacturer','maker':'manufacturer',
+  'model':'model','part number':'partNo','part no':'partNo','part no.':'partNo','pn':'partNo','p/n':'partNo',
+  'additional info':'extraInfo','additional information':'extraInfo','extra info':'extraInfo','remarks':'extraInfo'
 };
 function normHeader(h){ return String(h||'').trim().toLowerCase(); }
 function makeInventoryRecord(row, keyMap, srcLabel){
-  const rec = {mat:'',desc:'',mtype:'',mgroup:'',plant:'',loc:'',locDesc:'',sim:'',src:'',bin:'',qty:0,cur:'MYR',val:0,photo:''};
+  const rec = {mat:'',desc:'',manufacturer:'',model:'',partNo:'',extraInfo:'',mtype:'',mgroup:'',plant:'',loc:'',locDesc:'',sim:'',src:'',bin:'',qty:0,cur:'MYR',val:0,photo:'',photos:[]};
   Object.keys(row).forEach(h=>{
     const k = keyMap[h] || HEADER_ALIASES[normHeader(h)];
     if(!k) return;
@@ -2032,6 +2100,10 @@ function makeInventoryRecord(row, keyMap, srcLabel){
   });
   rec.mat = String(rec.mat).trim();
   rec.desc = String(rec.desc).trim();
+  rec.manufacturer = String(rec.manufacturer||'').trim();
+  rec.model = String(rec.model||'').trim();
+  rec.partNo = String(rec.partNo||'').trim();
+  rec.extraInfo = String(rec.extraInfo||'').trim();
   rec.mtype = String(rec.mtype).trim();
   rec.mgroup = String(rec.mgroup).trim();
   rec.plant = String(rec.plant).trim() || 'HEQC';
@@ -2044,6 +2116,9 @@ function makeInventoryRecord(row, keyMap, srcLabel){
   rec.cur = String(rec.cur).trim() || 'MYR';
   rec.val = Number(rec.val)||0;
   rec.photo = String(rec.photo||'').trim();
+  if(typeof rec.photos === 'string') rec.photos = rec.photos ? rec.photos.split(' || ').filter(Boolean) : [];
+  rec.photos = normalizePhotos(rec);
+  rec.photo = rec.photos[0] || '';
   return rec;
 }
 function rowsToInventory(rows, srcLabel){
@@ -2064,6 +2139,41 @@ function workbookToInventory(wb, fallbackSrc){
     out = out.concat(rowsToInventory(rows, srcLabel));
   });
   return out;
+}
+function recordMergeKey(r){
+  return [r.mat, r.src || r.sim, r.loc, r.bin].map(v=>String(v||'').trim().toLowerCase()).join('|');
+}
+function mergeImportedRecords(imported){
+  let updated = 0, added = 0;
+  const existingByKey = new Map(DATA.map(r=>[recordMergeKey(r), r]));
+  imported.forEach(incoming=>{
+    const key = recordMergeKey(incoming);
+    const current = existingByKey.get(key);
+    if(current){
+      Object.keys(incoming).forEach(k=>{
+        if(k==='__id') return;
+        if(k==='photos'){
+          const merged = normalizePhotos(current).concat(normalizePhotos(incoming));
+          current.photos = [...new Set(merged)];
+          current.photo = current.photos[0] || '';
+          return;
+        }
+        const val = incoming[k];
+        if(val!=='' && val!=null) current[k] = val;
+      });
+      current.photos = normalizePhotos(current);
+      current.photo = current.photos[0] || '';
+      updated++;
+    } else {
+      incoming.__id = nextId++;
+      incoming.photos = normalizePhotos(incoming);
+      incoming.photo = incoming.photos[0] || '';
+      DATA.push(incoming);
+      existingByKey.set(key, incoming);
+      added++;
+    }
+  });
+  return {updated, added};
 }
 async function loadStarterData(){
   try{
@@ -2103,23 +2213,14 @@ document.getElementById('fileInput').addEventListener('change', (e)=>{
       }
 
       const importedTabs = [...new Set(imported.map(d=>d.src))];
-      const existingCount = DATA.filter(d=>importedTabs.includes(d.src)).length;
-      if(existingCount>0){
-        const replace = window.confirm(LANG==='ms'
-          ? ('Fail import ini sepadan dengan '+existingCount+' baris dalam tab sedia ada.\n\nOK = Ganti tab yang sepadan dengan fail ini\nBatal = Kekalkan data sedia ada dan tambah sebagai baris baharu')
-          : ('This import matches '+existingCount+' existing line items by tab.\n\nOK = Replace matching tabs with this file\nCancel = Keep existing and add these as new lines'));
-        if(replace){
-          DATA = DATA.filter(d=>!importedTabs.includes(d.src));
-        }
-      }
-      DATA = DATA.concat(imported);
+      const mergeResult = mergeImportedRecords(imported);
       state.tab = importedTabs[0] || srcLabel;
       dataSourceLabel = 'Imported: '+file.name;
       render();
       autoSaveToGithub('Import '+file.name);
       const impMsg = LANG==='ms'
-        ? ('Berjaya import '+imported.length+' baris daripada"'+file.name+'".')
-        : ('Imported '+imported.length+' rows from"'+file.name+'".');
+        ? ('Import siap: '+mergeResult.updated+' dikemas kini, '+mergeResult.added+' baharu daripada "'+file.name+'".')
+        : ('Import complete: '+mergeResult.updated+' updated, '+mergeResult.added+' added from "'+file.name+'".');
       toast(impMsg, 'info');
     } catch(err){
       console.error(err);
@@ -2137,11 +2238,11 @@ const SUPPORTS_SAVE_PICKER = (typeof window!=='undefined') && ('showSaveFilePick
 function todayStamp(){ return new Date().toISOString().slice(0,10); }
 
 function buildCsvBlob(rows){
-  const headers = ['No','Material','Description','Material Type','Simulator','Storage Location','Storage Bin','Qty','Status','Photo'];
+  const headers = ['No','Material','Description','Manufacturer','Model','Part Number','Additional Info','Material Type','Simulator','Storage Location','Storage Bin','Qty','Status','Photos'];
   const lines = [headers.join(',')];
   rows.forEach((r,i)=>{
     const s = statusOf(r.qty);
-    const vals = [i+1, r.mat, '"'+String(r.desc).replace(/"/g,'""')+'"', r.mtype, r.sim, LOC_LABELS[r.loc]||r.locDesc, r.bin, r.qty, statusLabel(s), r.photo ? '"Photo saved in Excel/JSON export"' : ''];
+    const vals = [i+1, r.mat, '"'+String(r.desc).replace(/"/g,'""')+'"', r.manufacturer||'', r.model||'', r.partNo||'', '"'+String(r.extraInfo||'').replace(/"/g,'""')+'"', r.mtype, r.sim, LOC_LABELS[r.loc]||r.locDesc, r.bin, r.qty, statusLabel(s), normalizePhotos(r).length ? '"Photo saved in Excel/JSON export"' : ''];
     lines.push(vals.join(','));
   });
   return new Blob([lines.join('\n')], {type:'text/csv'});
@@ -2151,6 +2252,10 @@ function toOriginalRow(r){
   return {
     'Material': r.mat,
     'Material Description': r.desc,
+    'Manufacturer': r.manufacturer || '',
+    'Model': r.model || '',
+    'Part Number': r.partNo || '',
+    'Additional Info': r.extraInfo || '',
     'Material Type': r.mtype,
     'Material Group': r.mgroup,
     'Plant': r.plant,
@@ -2161,7 +2266,8 @@ function toOriginalRow(r){
     'Unrestricted': r.qty,
     'Currency': r.cur,
     'Value Unrestricted': r.val,
-    'Photo': r.photo || ''
+    'Photo': normalizePhotos(r)[0] || '',
+    'Photos': normalizePhotos(r).join(' || ')
   };
 }
 function safeSheetName(name){
