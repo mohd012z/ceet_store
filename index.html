@@ -698,8 +698,16 @@ input[type="range"]::-moz-range-thumb{
             <input type="text" id="f_partNo" placeholder="e.g. PN-12345">
           </div>
           <div class="form-field">
-            <label>Additional Info</label>
-            <input type="text" id="f_extraInfo" placeholder="serial, remarks, supplier, etc.">
+            <label>Serial No.</label>
+            <input type="text" id="f_serialNo" placeholder="e.g. SN-001">
+          </div>
+          <div class="form-field">
+            <label>Supplier</label>
+            <input type="text" id="f_supplier" placeholder="e.g. vendor / store source">
+          </div>
+          <div class="form-field full">
+            <label>Remarks</label>
+            <input type="text" id="f_remarks" placeholder="condition, notes, additional info">
           </div>
           <div class="form-field">
             <label data-i18n="add.matType">Material Type</label>
@@ -1808,7 +1816,9 @@ function openDetail(id){
     ['Manufacturer', r.manufacturer || '-', false],
     ['Model', r.model || '-', false],
     ['Part Number', r.partNo || '-', true],
-    ['Additional Info', r.extraInfo || '-', false],
+    ['Serial No.', r.serialNo || '-', true],
+    ['Supplier', r.supplier || '-', false],
+    ['Remarks', r.remarks || r.extraInfo || '-', false],
     [t('detail.matType'), r.mtype, true],
     [t('detail.matGroup'), r.mgroup, true],
     [t('detail.plant'), r.plant, true],
@@ -1961,7 +1971,9 @@ function openAddModal(editId){
     document.getElementById('f_manufacturer').value = editing.manufacturer || '';
     document.getElementById('f_model').value = editing.model || '';
     document.getElementById('f_partNo').value = editing.partNo || '';
-    document.getElementById('f_extraInfo').value = editing.extraInfo || '';
+    document.getElementById('f_serialNo').value = editing.serialNo || '';
+    document.getElementById('f_supplier').value = editing.supplier || '';
+    document.getElementById('f_remarks').value = editing.remarks || editing.extraInfo || '';
     document.getElementById('f_mtype').value = editing.mtype || 'ZMPV';
     document.getElementById('f_mgroup').value = editing.mgroup || '803010101';
     document.getElementById('f_plant').value = editing.plant || 'HEQC';
@@ -2012,7 +2024,10 @@ document.getElementById('submitAddBtn').addEventListener('click', ()=>{
     manufacturer: document.getElementById('f_manufacturer').value.trim(),
     model: document.getElementById('f_model').value.trim(),
     partNo: document.getElementById('f_partNo').value.trim(),
-    extraInfo: document.getElementById('f_extraInfo').value.trim(),
+    serialNo: document.getElementById('f_serialNo').value.trim(),
+    supplier: document.getElementById('f_supplier').value.trim(),
+    remarks: document.getElementById('f_remarks').value.trim(),
+    extraInfo: document.getElementById('f_remarks').value.trim(),
     mtype: document.getElementById('f_mtype').value.trim() || 'ZMPV',
     mgroup: document.getElementById('f_mgroup').value.trim() || '803010101',
     plant: document.getElementById('f_plant').value.trim() || 'HEQC',
@@ -2088,11 +2103,13 @@ const HEADER_ALIASES = {
   'photo':'photo','image':'photo','photo url':'photo','photo data':'photo',
   'photos':'photos','evidence photos':'photos','manufacturer':'manufacturer','maker':'manufacturer',
   'model':'model','part number':'partNo','part no':'partNo','part no.':'partNo','pn':'partNo','p/n':'partNo',
-  'additional info':'extraInfo','additional information':'extraInfo','extra info':'extraInfo','remarks':'extraInfo'
+  'serial no':'serialNo','serial number':'serialNo','s/n':'serialNo','sn':'serialNo',
+  'supplier':'supplier','vendor':'supplier',
+  'remarks':'remarks','remark':'remarks','notes':'remarks','additional info':'remarks','additional information':'remarks','extra info':'remarks'
 };
 function normHeader(h){ return String(h||'').trim().toLowerCase(); }
 function makeInventoryRecord(row, keyMap, srcLabel){
-  const rec = {mat:'',desc:'',manufacturer:'',model:'',partNo:'',extraInfo:'',mtype:'',mgroup:'',plant:'',loc:'',locDesc:'',sim:'',src:'',bin:'',qty:0,cur:'MYR',val:0,photo:'',photos:[]};
+  const rec = {mat:'',desc:'',manufacturer:'',model:'',partNo:'',serialNo:'',supplier:'',remarks:'',extraInfo:'',mtype:'',mgroup:'',plant:'',loc:'',locDesc:'',sim:'',src:'',bin:'',qty:0,cur:'MYR',val:0,photo:'',photos:[]};
   Object.keys(row).forEach(h=>{
     const k = keyMap[h] || HEADER_ALIASES[normHeader(h)];
     if(!k) return;
@@ -2103,7 +2120,10 @@ function makeInventoryRecord(row, keyMap, srcLabel){
   rec.manufacturer = String(rec.manufacturer||'').trim();
   rec.model = String(rec.model||'').trim();
   rec.partNo = String(rec.partNo||'').trim();
-  rec.extraInfo = String(rec.extraInfo||'').trim();
+  rec.serialNo = String(rec.serialNo||'').trim();
+  rec.supplier = String(rec.supplier||'').trim();
+  rec.remarks = String(rec.remarks||rec.extraInfo||'').trim();
+  rec.extraInfo = rec.remarks;
   rec.mtype = String(rec.mtype).trim();
   rec.mgroup = String(rec.mgroup).trim();
   rec.plant = String(rec.plant).trim() || 'HEQC';
@@ -2238,11 +2258,11 @@ const SUPPORTS_SAVE_PICKER = (typeof window!=='undefined') && ('showSaveFilePick
 function todayStamp(){ return new Date().toISOString().slice(0,10); }
 
 function buildCsvBlob(rows){
-  const headers = ['No','Material','Description','Manufacturer','Model','Part Number','Additional Info','Material Type','Simulator','Storage Location','Storage Bin','Qty','Status','Photos'];
+  const headers = ['No','Material','Description','Manufacturer','Model','Part Number','Serial No','Supplier','Remarks','Material Type','Simulator','Storage Location','Storage Bin','Qty','Status','Photos'];
   const lines = [headers.join(',')];
   rows.forEach((r,i)=>{
     const s = statusOf(r.qty);
-    const vals = [i+1, r.mat, '"'+String(r.desc).replace(/"/g,'""')+'"', r.manufacturer||'', r.model||'', r.partNo||'', '"'+String(r.extraInfo||'').replace(/"/g,'""')+'"', r.mtype, r.sim, LOC_LABELS[r.loc]||r.locDesc, r.bin, r.qty, statusLabel(s), normalizePhotos(r).length ? '"Photo saved in Excel/JSON export"' : ''];
+    const vals = [i+1, r.mat, '"'+String(r.desc).replace(/"/g,'""')+'"', r.manufacturer||'', r.model||'', r.partNo||'', r.serialNo||'', r.supplier||'', '"'+String(r.remarks||r.extraInfo||'').replace(/"/g,'""')+'"', r.mtype, r.sim, LOC_LABELS[r.loc]||r.locDesc, r.bin, r.qty, statusLabel(s), normalizePhotos(r).length ? '"Photo saved in Excel/JSON export"' : ''];
     lines.push(vals.join(','));
   });
   return new Blob([lines.join('\n')], {type:'text/csv'});
@@ -2255,7 +2275,9 @@ function toOriginalRow(r){
     'Manufacturer': r.manufacturer || '',
     'Model': r.model || '',
     'Part Number': r.partNo || '',
-    'Additional Info': r.extraInfo || '',
+    'Serial No': r.serialNo || '',
+    'Supplier': r.supplier || '',
+    'Remarks': r.remarks || r.extraInfo || '',
     'Material Type': r.mtype,
     'Material Group': r.mgroup,
     'Plant': r.plant,
