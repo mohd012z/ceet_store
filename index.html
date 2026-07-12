@@ -1907,8 +1907,8 @@ function materialRecordCard(o, active){
 function openDetail(id){
   const r = DATA.find(d=>d.__id===id);
   if(!r) return;
-  document.getElementById('detailTitle').textContent = r.mat + ' — ' + r.desc;
-  document.getElementById('detailSub').textContent = r.sim + ' · ' + (LOC_LABELS[r.loc]||r.locDesc) + ' (' + r.loc + ')';
+  document.getElementById('detailTitle').textContent = r.mat + ' - ' + r.desc;
+  document.getElementById('detailSub').textContent = (r.manufacturer||'Manufacturer not set') + ' | ' + (r.model||'Model not set') + ' | ' + (r.partNo||'Part No. not set');
   const s = statusOf(r.qty);
   const fields = [
     [t('table.material'), r.mat, true],
@@ -1918,14 +1918,18 @@ function openDetail(id){
     ['Serial Nos.', String(r.serialNo||'-').replace(/\n/g, ', '), true],
     ['Supplier', r.supplier || '-', false],
     ['Remarks', r.remarks || r.extraInfo || '-', false],
+    ['Description', r.desc || '-', false],
     [t('detail.matType'), r.mtype, true],
     [t('detail.matGroup'), r.mgroup, true],
     [t('detail.plant'), r.plant, true],
     [t('detail.simSrc'), r.src, false],
     [t('detail.simType'), r.sim, false],
+    ['Storage Location Code', r.loc || '-', true],
+    ['Storage Location Desc.', LOC_LABELS[r.loc]||r.locDesc||'-', false],
     [t('detail.storageLoc'), (LOC_LABELS[r.loc]||r.locDesc)+' ('+r.loc+')', false],
     [t('detail.storageBin'), r.bin || t('detail.unassigned'), true],
     [t('detail.qty'), r.qty, true],
+    ['Photos Count', normalizePhotos(r).length, true],
     [t('detail.status'), statusLabel(s), false]
   ];
   let html = '<div class="detail-grid">' + fields.map(f=>
@@ -1938,10 +1942,12 @@ function openDetail(id){
       '</div>';
   }
 
-  const materialRows = DATA.filter(d=>d.mat===r.mat).sort((a,b)=>String(a.src||'').localeCompare(String(b.src||'')) || String(a.loc||'').localeCompare(String(b.loc||'')) || String(a.bin||'').localeCompare(String(b.bin||'')));
-  html += '<hr class="detail-divider">';
-  html += '<div class="dl" style="margin-bottom:8px;">All records for this Material No. ('+materialRows.length+')</div>';
-  html += '<div class="other-locs">' + materialRows.map(o=>materialRecordCard(o, o.__id===r.__id)).join('') + '</div>';
+  const otherRows = DATA.filter(d=>d.mat===r.mat && d.__id!==r.__id).sort((a,b)=>String(a.src||'').localeCompare(String(b.src||'')) || String(a.loc||'').localeCompare(String(b.loc||'')) || String(a.bin||'').localeCompare(String(b.bin||'')));
+  if(otherRows.length){
+    html += '<hr class="detail-divider">';
+    html += '<div class="dl" style="margin-bottom:8px;">Other records with same Material No. ('+otherRows.length+')</div>';
+    html += '<div class="other-locs">' + otherRows.map(o=>materialRecordCard(o, false)).join('') + '</div>';
+  }
   document.getElementById('detailBody').innerHTML = html;
   document.querySelectorAll('#detailBody img[data-view-photo]').forEach(img=>{
     img.addEventListener('click', ()=>openPhotoViewer(img.src));
