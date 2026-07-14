@@ -1057,6 +1057,11 @@ input[type="range"]::-moz-range-thumb{
       <div class="settings-row" style="display:block;">
         <div id="githubStatus" class="hint">GitHub autosave is not tested yet.</div>
       </div>
+      <div class="settings-row" style="display:block;">
+        <div class="sr-label">Device auto-save</div>
+        <div class="hint" id="localSaveStatus">Every add / edit / delete / photo / import is auto-saved on this phone or PC. Refreshing or closing the tab will NOT lose your work.</div>
+        <button class="btn" id="clearLocalSaveBtn" type="button" style="margin-top:8px;">Clear device auto-save &amp; reload fresh from GitHub</button>
+      </div>
 <div class="hint" style="margin-top:14px;" data-i18n="settings.sessionHint">Like the language setting, appearance resets to default the next time you open this file — it isn't saved to disk.</div>
     </div>
     <div class="modal-foot">
@@ -1101,6 +1106,113 @@ function resetDataIds(){
   DATA.forEach((d,i)=>{ d.__id = i; });
   nextId = DATA.length;
 }
+
+/* ---------------- Device auto-save (IndexedDB) ----------------
+   Every add / edit / delete / import is snapshotted into IndexedDB
+   on this device, so refresh / closed tab / crash will NOT lose work.
+   Works on iOS Safari and Android Chrome. Photos included. */
+const LOCAL_DB_NAME = 'ceet_spares_local';
+const LOCAL_STORE = 'snapshot';
+const LOCAL_KEY = 'inventory';
+let localSaveTimer = null;
+let lastLocalSaveAt = null;
+let localDirty = false; /* true = this device has edits not yet saved to GitHub */
+
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    if(!('indexedDB' in window)){ reject(new Error('IndexedDB not available in this browser')); return; }
+    const req = indexedDB.open(LOCAL_DB_NAME, 1);
+    req.onupgradeneeded = ()=>{ req.result.createObjectStore(LOCAL_STORE); };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error || new Error('Could not open local database'));
+  });
+}
+function idbSet(key, val){
+  return idbOpen().then(db=>new Promise((resolve,reject)=>{
+    const tx = db.transaction(LOCAL_STORE,'readwrite');
+    tx.objectStore(LOCAL_STORE).put(val, key);
+    tx.oncomplete = ()=>{ db.close(); resolve(); };
+    tx.onerror = ()=>{ const e = tx.error; db.close(); reject(e || new Error('Local save failed')); };
+    tx.onabort = ()=>{ const e = tx.error; db.close(); reject(e || new Error('Local save aborted (storage full?)')); };
+  }));
+}
+function idbGet(key){
+  return idbOpen().then(db=>new Promise((resolve,reject)=>{
+    const tx = db.transaction(LOCAL_STORE,'readonly');
+    const rq = tx.objectStore(LOCAL_STORE).get(key);
+    rq.onsuccess = ()=>{ db.close(); resolve(rq.result); };
+    rq.onerror = ()=>{ const e = rq.error; db.close(); reject(e || new Error('Local read failed')); };
+  }));
+}
+function idbDelete(key){
+  return idbOpen().then(db=>new Promise((resolve,reject)=>{
+    const tx = db.transaction(LOCAL_STORE,'readwrite');
+    tx.objectStore(LOCAL_STORE).delete(key);
+    tx.oncomplete = ()=>{ db.close(); resolve(); };
+    tx.onerror = ()=>{ const e = tx.error; db.close(); reject(e || new Error('Local delete failed')); };
+  }));
+}
+function updateLocalSaveStatus(msg, ok){
+  const el = document.getElementById('localSaveStatus');
+  if(el){
+    el.textContent = msg;
+    el.style.color = ok===false ? 'var(--red)' : '';
+  }
+}
+function persistLocalNow(){
+  if(localSaveTimer){ clearTimeout(localSaveTimer); localSaveTimer = null; }
+  const snap = {
+    v: 2,
+    savedAt: Date.now(),
+    dirty: !!localDirty,
+    label: (typeof dataSourceLabel !== 'undefined' && dataSourceLabel) ? String(dataSourceLabel) : '',
+    rows: DATA.map(d=>Object.assign({}, d))
+  };
+  return idbSet(LOCAL_KEY, snap).then(()=>{
+    lastLocalSaveAt = snap.savedAt;
+    const syncNote = snap.dirty ? ' Not yet saved to GitHub.' : ' In sync with GitHub.';
+    updateLocalSaveStatus('Auto-saved on this device: '+new Date(snap.savedAt).toLocaleString()+' ('+snap.rows.length+' rows, photos included). Refresh-safe.'+syncNote, true);
+  }).catch(err=>{
+    console.error('Device auto-save failed', err);
+    updateLocalSaveStatus('Device auto-save FAILED: '+(err && err.message ? err.message : err)+'. Export to Excel now to be safe.', false);
+    toast('Device auto-save failed - export your Excel as backup.', 'err');
+  });
+}
+function persistLocal(){
+  if(localSaveTimer) clearTimeout(localSaveTimer);
+  localSaveTimer = setTimeout(()=>{ localSaveTimer = null; persistLocalNow(); }, 600);
+}
+async function restoreLocalSnapshot(){
+  try{
+    const snap = await idbGet(LOCAL_KEY);
+    if(snap && Array.isArray(snap.rows) && snap.rows.length){
+      DATA = snap.rows;
+      resetDataIds();
+      dataSourceLabel = snap.label ? (snap.label + ' (device auto-save)') : 'Device auto-save';
+      lastLocalSaveAt = snap.savedAt || null;
+      localDirty = (snap.dirty === undefined) ? true : !!snap.dirty; /* old snapshots: assume unsaved edits */
+      return true;
+    }
+  } catch(err){
+    console.warn('Could not read device auto-save', err);
+  }
+  return false;
+}
+async function clearLocalSnapshotAndReload(){
+  try{ await idbDelete(LOCAL_KEY); } catch(e){ console.warn(e); }
+  toast('Device auto-save cleared. Reloading fresh data...', 'info');
+  setTimeout(()=>location.reload(), 700);
+}
+/* Flush any pending save when the app is backgrounded or closed (important on mobile) */
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden' && localSaveTimer) persistLocalNow(); });
+window.addEventListener('pagehide', ()=>{ if(localSaveTimer) persistLocalNow(); });
+(function(){
+  const btn = document.getElementById('clearLocalSaveBtn');
+  if(btn) btn.addEventListener('click', ()=>{
+    const msg = 'Delete the auto-saved copy on this device and reload fresh data from GitHub?\n\nAny edits not exported or saved to GitHub will be lost.';
+    if(confirm(msg)) clearLocalSnapshotAndReload();
+  });
+})();
 
 const LOC_LABELS = {
   'SIMU':'Sim. Main Store','UNSV':'Unserviceable Store','CAB1':'Cabin Main Simu.',
@@ -1367,7 +1479,14 @@ function faqHtml(){
     </div>
     <div class="faq-section">
       <h3>Where is the data actually stored?</h3>
-      <p><strong>Nowhere permanent by default.</strong> Everything you see lives in this browser tab's memory only, for as long as the tab stays open. Nothing is uploaded anywhere, nothing is saved to disk automatically. If you close the tab, refresh the page, or your browser crashes <strong>before you export</strong>, any adds/edits/deletes/imports since the last export are lost. The <em>only</em> persistent copy is whatever .xlsx/.csv file you last saved with the Export button — treat that exported file as your real backup.</p>
+      <p><strong>Auto-saved on this device.</strong> Every add, edit, delete, photo and import is automatically snapshotted into this browser's local database (IndexedDB) on this phone or PC — so refreshing the page, closing the tab, or a crash will <strong>not</strong> lose your work. When you reopen the page, the app restores your last auto-saved copy instead of the GitHub starter file.</p>
+      <p>Three layers of safety, from fastest to most permanent:</p>
+      <ul>
+        <li><strong>Device auto-save (automatic):</strong> instant, per-device. It lives inside this browser on this device only — it does not sync between your iPhone and Android phone by itself.</li>
+        <li><strong>GitHub autosave (recommended, turn on in Settings):</strong> pushes the JSON + Excel database to your repo after every change. Smart sync at startup: if this device has <em>no unsaved edits</em>, the app always pulls the latest data from GitHub — so an update saved on your iPhone appears on your Android the next time you open (or pull-to-refresh) the page. If this device <em>does</em> have unsaved edits, they are kept and never overwritten; save them to GitHub to share them.</li>
+        <li><strong>Excel export (manual):</strong> a real .xlsx file you keep as an offline backup or hand to others.</li>
+      </ul>
+      <p>To discard the device copy and pull fresh data from GitHub, use <em>Settings &rarr; Clear device auto-save &amp; reload fresh from GitHub</em>. On iPhone, avoid Private Browsing mode (it blocks local storage), and if you use the page often, <em>Share &rarr; Add to Home Screen</em> so iOS never cleans up the saved data.</p>
     </div>
     <div class="faq-section">
       <h3><span class="stepno">1</span>Browsing, searching &amp; filtering</h3>
@@ -1610,10 +1729,14 @@ async function saveToGithub(reason='Manual save'){
   if(xlsxBase64){
     await putGithubFile('data/CEET_Spares_Package.xlsx', xlsxBase64, reason+' - update Excel database', cfg);
   }
+  localDirty = false; /* device copy now matches GitHub */
+  persistLocalNow();
   toast('Saved to GitHub. GitHub Pages may take a minute to refresh.', 'info');
   return true;
 }
 function autoSaveToGithub(reason){
+  localDirty = true; /* this edit is not on GitHub yet */
+  persistLocal(); /* always snapshot to this device first - refresh-safe even without GitHub */
   const cfg = loadGithubSettings();
   if(!cfg.autoSave) return;
   if(!cfg.token){
@@ -2913,16 +3036,42 @@ document.getElementById('tourSkip').addEventListener('click', endTour);
 window.addEventListener('resize', ()=>{ if(tourActive) renderTourStep(); });
 
 async function initApp(){
+  /* 1) Read the auto-saved copy on this device (survives refresh/close) */
+  const restored = await restoreLocalSnapshot();
+
+  /* 2) If this device has edits NOT yet saved to GitHub, keep them - never overwrite unsaved work */
+  if(restored && localDirty){
+    render();
+    const when = lastLocalSaveAt ? new Date(lastLocalSaveAt).toLocaleString() : '';
+    updateLocalSaveStatus('Restored device auto-save from '+when+' ('+DATA.length+' rows). These edits are NOT on GitHub yet - turn on GitHub autosave or click Save to GitHub.', true);
+    toast('Restored '+DATA.length.toLocaleString()+' rows with unsaved edits from this device'+(when?(' ('+when+')'):'')+'.', 'info');
+    return;
+  }
+
+  /* 3) Device copy is clean (or none) - pull the freshest data from GitHub Pages,
+        so updates saved from your other phone appear automatically */
   try{
     await loadStarterData();
     render();
-    toast('Loaded '+DATA.length.toLocaleString()+' rows from '+dataSourceLabel+'.', 'info');
+    localDirty = false;
+    persistLocalNow(); /* refresh the device snapshot with the latest GitHub data */
+    toast('Loaded '+DATA.length.toLocaleString()+' rows (latest from GitHub).', 'info');
   } catch(err){
     console.error(err);
+    if(restored){
+      /* Offline / GitHub unreachable - fall back to the device auto-save */
+      await restoreLocalSnapshot();
+      render();
+      const when = lastLocalSaveAt ? new Date(lastLocalSaveAt).toLocaleString() : '';
+      updateLocalSaveStatus('Offline - showing device auto-save from '+when+' ('+DATA.length+' rows).', true);
+      toast('Could not reach GitHub - showing the copy auto-saved on this device'+(when?(' ('+when+')'):'')+'.', 'info');
+      return;
+    }
     DATA = [];
     resetDataIds();
     render();
-    toast('Could not load data folder. Check data/CEET_Spares_Package.xlsx on GitHub Pages.', 'err');
+    toast('No database yet in GitHub data/ folder. Click Import Excel to load your file, then click Save to GitHub - that creates the data folder and this message will not appear again.', 'err');
+    updateLocalSaveStatus('First run: Import Excel, then Save to GitHub to create data/CEET_Spares_Package.xlsx and data/CEET_Spares_Database.json in your repo.', true);
   }
 }
 initApp();
