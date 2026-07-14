@@ -1042,7 +1042,7 @@ input[type="range"]::-moz-range-thumb{
       <div class="settings-row">
         <div>
           <div class="sr-label">GitHub Token</div>
-          <div class="sr-sub">Fine-grained token with Contents: Read and Write</div>
+          <div class="sr-sub">Fine-grained token with Contents: Read and Write. Paste it ONLY here - never into index.html or any file in the repo (GitHub auto-revokes exposed tokens).</div>
         </div>
         <input id="ghToken" type="password" placeholder="github_pat_..." style="max-width:260px;">
       </div>
@@ -1696,7 +1696,10 @@ async function githubRequest(path, method, body, cfg){
   });
   if(!res.ok){
     const txt = await res.text();
-    throw new Error('GitHub '+method+' '+path+' failed: '+res.status+' '+txt.slice(0,180));
+    let hint = '';
+    if(res.status===403) hint = ' >> Token has no WRITE access to this repo. Recreate it: Repository access = Only select repositories (pick the repo), Contents = Read and write. Never paste the token into index.html - GitHub auto-revokes exposed tokens.';
+    if(res.status===401) hint = ' >> Token invalid or revoked. If it was ever pasted into a file pushed to GitHub, it was auto-revoked - create a new one and paste it only in Settings.';
+    throw new Error('GitHub '+method+' '+path+' failed: '+res.status+' '+txt.slice(0,140)+hint);
   }
   return res.json();
 }
@@ -1756,12 +1759,31 @@ async function testGithubConnection(){
     return;
   }
   try{
-    await githubRequest('data/CEET_Spares_Database.json?ref='+encodeURIComponent(cfg.branch), 'GET', null, cfg);
-    updateGithubStatus('GitHub connection OK. Autosave is ready.', 'ok');
-    toast('GitHub connection OK. Database file is reachable.', 'info');
+    const res = await fetch('https://api.github.com/repos/'+cfg.repo, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'Bearer '+cfg.token,
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+    if(res.status===401){
+      throw new Error('Token is INVALID or was REVOKED (401). Important: if a token is ever pasted into index.html or any file pushed to a public repo, GitHub auto-revokes it instantly. Create a NEW token and paste it ONLY in this Settings box - never into the code.');
+    }
+    if(res.status===404){
+      throw new Error('Repo "'+cfg.repo+'" not reachable with this token (404). Check the repo name is exact, and that the token was created on the SAME GitHub account with "Only select repositories" including this repo.');
+    }
+    if(!res.ok) throw new Error('GitHub check failed: HTTP '+res.status);
+    const info = await res.json();
+    if(!(info.permissions && info.permissions.push)){
+      updateGithubStatus('Token can READ but CANNOT WRITE to '+cfg.repo+'. Saves will fail with 403. Recreate the token: Repository access = Only select repositories (pick '+cfg.repo+'), Permissions > Contents = Read and write.', 'err');
+      toast('Token has NO write permission - recreate it with Contents: Read and write.', 'err');
+      return;
+    }
+    updateGithubStatus('GitHub connection OK - token can read AND write to '+cfg.repo+' (branch '+cfg.branch+'). Autosave is ready.', 'ok');
+    toast('GitHub OK: write access confirmed.', 'info');
   } catch(err){
     console.error(err);
-    updateGithubStatus('GitHub test failed. Check token permission: Contents Read and Write.', 'err');
+    updateGithubStatus(err.message, 'err');
     toast('GitHub test failed: '+err.message, 'err');
   }
 }
