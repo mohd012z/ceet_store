@@ -1599,11 +1599,24 @@ function toast(msg, type){
   wrap.appendChild(el);
   setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 3600);
 }
-function loadGithubSettings(){
+function guessRepoFromLocation(){
+  /* On GitHub Pages, work out which repo this page is actually served from */
   try{
-    return Object.assign({repo:'mohd012z/ceet_store', branch:'main', token:'', autoSave:false}, JSON.parse(localStorage.getItem(GITHUB_SETTINGS_KEY)||'{}'));
+    const m = location.hostname.match(/^([a-z0-9-]+)\.github\.io$/i);
+    if(!m) return '';
+    const user = m[1];
+    const seg = location.pathname.split('/').filter(Boolean);
+    const first = seg[0] || '';
+    if(!first || /\.[a-z0-9]+$/i.test(first)) return user+'/'+user+'.github.io'; /* root user site */
+    return user+'/'+first; /* project site: /repo-name/... */
+  } catch(e){ return ''; }
+}
+function loadGithubSettings(){
+  const defRepo = guessRepoFromLocation() || 'mohd012z/ceet_store';
+  try{
+    return Object.assign({repo:defRepo, branch:'main', token:'', autoSave:false}, JSON.parse(localStorage.getItem(GITHUB_SETTINGS_KEY)||'{}'));
   } catch(e){
-    return {repo:'mohd012z/ceet_store', branch:'main', token:'', autoSave:false};
+    return {repo:defRepo, branch:'main', token:'', autoSave:false};
   }
 }
 function saveGithubSettings(){
@@ -1643,6 +1656,13 @@ function openGithubSettings(message){
   populateGithubSettings();
   document.getElementById('settingsBackdrop').classList.add('open');
   if(message) updateGithubStatus(message, 'warn');
+  else {
+    const guess = guessRepoFromLocation();
+    const cfg = loadGithubSettings();
+    if(guess && cfg.repo && cfg.repo.toLowerCase() !== guess.toLowerCase()){
+      updateGithubStatus('NOTE: this page is served from repo "'+guess+'" but saves are set to go to "'+cfg.repo+'". If your token only has access to '+guess+', saves will fail with 403. To fix: change the Repo field to '+guess+', Save GitHub Settings, then Test GitHub.', 'warn');
+    }
+  }
   setTimeout(()=>{
     const token = document.getElementById('ghToken');
     if(token && !token.value) token.focus();
